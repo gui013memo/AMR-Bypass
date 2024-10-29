@@ -1,4 +1,5 @@
 using System;
+using System.Drawing;
 using System.IO;
 using System.Xml;
 using System.Net;
@@ -7,7 +8,8 @@ using System.Threading;
 using System.Diagnostics;
 using System.Windows.Forms;
 using Modbus.Device; // For ModbusSlave
-using Modbus.Data;  // For DataStore and DataStoreFactory
+using Modbus.Data;   // For DataStore and DataStoreFactory
+using myLogger;
 
 namespace AMR_Bypass
 {
@@ -17,43 +19,39 @@ namespace AMR_Bypass
         private static readonly object coilsLock = new object();
 
         // Config file paths
-        private string configFilePath = @"C:\SW\SQS Cilient\ACA\App\ProuductSignInUI.exe.config";
-        private string backupConfigFilePath = @"C:\SW\SQS Cilient\ACA\App\ProuductSignInUI.exe.config.bak";
+        private static string configFilePath = @"C:\SW\SQS Client\ACA\App\ProuductSignInUI.exe.config";
+        private static string backupConfigFilePath = @"C:\SW\SQS Client\ACA\App\ProuductSignInUI.exe.config.bak";
 
         // ProductSignIn application path
-        private string productSignInAppPath = @"C:\SW\SQS Cilient\ACA\App\ProuductSignInUI.exe";
+        private static string productSignInAppPath = @"C:\SW\SQS Client\ACA\App\ProuductSignInUI.exe";
 
         // Original Controller_IP value
-        private string originalControllerIP = "192.168.1.45";
-        private string ambControllerIP = "192.168.1.46";
+        private static string originalControllerIP = "192.168.1.45";
+        private static string ambControllerIP = "192.168.1.46";
 
-        // Coils array
+        // Initialize coil statuses (8 bits)
         private bool[] coils = new bool[8]; // Bits 0 to 7, initialized to false
 
-        // Modbus slave and threads
-        private ModbusSlave slave;
         private Thread modbusThread;
         private Thread dataUpdaterThread;
+        private TcpListener tcpListener;
+
+        Logger logger;
 
         public Form1()
         {
             InitializeComponent();
+            this.Load += new EventHandler(Form1_Load);
+            this.FormClosing += new FormClosingEventHandler(Form1_FormClosing);
+
+            logger = new Logger();
 
             // Handle unexpected closures
-            Application.ApplicationExit += new EventHandler(OnApplicationExit);
-            this.FormClosing += new FormClosingEventHandler(OnFormClosing);
-
-            // Initialize UI
-            lblLeftStatus.Text = "OFF";
-            lblLeftStatus.ForeColor = System.Drawing.Color.Red;
-            lblRightStatus.Text = "OFF";
-            lblRightStatus.ForeColor = System.Drawing.Color.Red;
-
-            // Start initialization
-            InitializeAMB();
+            Application.ThreadException += new ThreadExceptionEventHandler(Application_ThreadException);
+            //AppDomain.CurrentDomain.UnhandledException += new UnhandledExceptionEventHandler(CurrentDomain_UnhandledException);
         }
 
-        private void InitializeAMB()
+        private void Form1_Load(object sender, EventArgs e)
         {
             // Restore original config if backup exists (in case of previous unexpected closure)
             if (File.Exists(backupConfigFilePath))
@@ -73,41 +71,37 @@ namespace AMR_Bypass
             modbusThread.IsBackground = true;
             modbusThread.Start();
 
-            LogStatus("AMB Modbus TCP Server is running on IP 192.168.1.46...");
+            // Update UI labels
+            UpdateLeftStatus();
+            UpdateRightStatus();
         }
 
-        private void OnApplicationExit(object sender, EventArgs e)
+        private void Form1_FormClosing(object sender, FormClosingEventArgs e)
         {
-            CleanupAMB();
-        }
-
-        private void OnFormClosing(object sender, FormClosingEventArgs e)
-        {
-            CleanupAMB();
-        }
-
-        private void CleanupAMB()
-        {
-            // Stop Modbus server and threads
-            if (slave != null)
-            {
-                slave.Dispose();
-            }
-
-            if (modbusThread != null && modbusThread.IsAlive)
-            {
-                modbusThread.Abort();
-            }
-
-            if (dataUpdaterThread != null && dataUpdaterThread.IsAlive)
-            {
-                dataUpdaterThread.Abort();
-            }
-
             // Restore original config and restart ProductSignIn
             RestoreOriginalConfig();
             RestartProductSignIn();
+
+            // Stop the Modbus TCP Server
+            if (tcpListener != null)
+            {
+                tcpListener.Stop();
+            }
         }
+
+        private void Application_ThreadException(object sender, ThreadExceptionEventArgs e)
+        {
+            RestoreOriginalConfig();
+            RestartProductSignIn();
+            logger.Log("Application_ThreadException happened");
+        }
+
+        //private void CurrentDomain_UnhandledException(object sender, UnhandledExceptionEventArgs e)
+        //{
+        //    RestoreOriginalConfig();
+        //    RestartProductSignIn();
+        //    logger.Log("CurrentDomain_UnhandledException happened");
+        //}
 
         private void ModifyProductSignInConfig()
         {
@@ -127,16 +121,16 @@ namespace AMR_Bypass
                 {
                     controllerIPNode.InnerText = ambControllerIP;
                     configDoc.Save(configFilePath);
-                    LogStatus("Modified ProductSignIn config to use AMB Controller_IP.");
+                    logger.Log("Modified ProductSignIn config to use AMB Controller_IP.");
                 }
                 else
                 {
-                    LogStatus("Controller_IP setting not found in config file.");
+                    logger.Log("Controller_IP setting not found in config file.");
                 }
             }
             catch (Exception ex)
             {
-                LogStatus($"Error modifying ProductSignIn config: {ex.Message}");
+                logger.Log($"Error modifying ProductSignIn config: {ex.Message}");
             }
         }
 
@@ -148,12 +142,12 @@ namespace AMR_Bypass
                 {
                     File.Copy(backupConfigFilePath, configFilePath, true);
                     File.Delete(backupConfigFilePath);
-                    LogStatus("Restored original ProductSignIn config.");
+                    logger.Log("Restored original ProductSignIn config.");
                 }
             }
             catch (Exception ex)
             {
-                LogStatus($"Error restoring ProductSignIn config: {ex.Message}");
+                logger.Log($"Error restoring ProductSignIn config: {ex.Message}");
             }
         }
 
@@ -166,16 +160,16 @@ namespace AMR_Bypass
                 {
                     process.Kill();
                     process.WaitForExit();
-                    LogStatus("Killed existing ProductSignIn process.");
+                    logger.Log("Killed existing ProductSignIn process.");
                 }
 
                 // Start the ProductSignIn application
                 Process.Start(productSignInAppPath);
-                LogStatus("Started ProductSignIn application.");
+                logger.Log("Started ProductSignIn application.");
             }
             catch (Exception ex)
             {
-                LogStatus($"Error restarting ProductSignIn: {ex.Message}");
+                logger.Log($"Error restarting ProductSignIn: {ex.Message}");
             }
         }
 
@@ -187,13 +181,13 @@ namespace AMR_Bypass
                 IPAddress serverIPAddress = IPAddress.Parse("192.168.1.46");
 
                 // Create a TCP listener on IP 192.168.1.46 and port 502
-                TcpListener tcpListener = new TcpListener(serverIPAddress, 502);
+                tcpListener = new TcpListener(serverIPAddress, 502);
                 tcpListener.Start();
 
                 byte slaveId = 1;
 
                 // Create Modbus slave
-                slave = ModbusTcpSlave.CreateTcp(slaveId, tcpListener);
+                ModbusSlave slave = ModbusTcpSlave.CreateTcp(slaveId, tcpListener);
 
                 // Create a default data store
                 DataStore dataStore = DataStoreFactory.CreateDefaultDataStore();
@@ -211,7 +205,7 @@ namespace AMR_Bypass
             }
             catch (Exception ex)
             {
-                LogStatus($"Modbus TCP Server exception: {ex.Message}");
+                logger.Log($"Modbus TCP Server exception: {ex.Message}");
             }
         }
 
@@ -251,59 +245,35 @@ namespace AMR_Bypass
             }
         }
 
+        private void btnExit_Click(object sender, EventArgs e)
+        {
+            this.Close();
+        }
+
         private void UpdateLeftStatus()
         {
-            if (InvokeRequired)
+            if (this.InvokeRequired)
             {
                 this.Invoke(new Action(UpdateLeftStatus));
             }
             else
             {
                 lblLeftStatus.Text = coils[0] ? "ON" : "OFF";
-                lblLeftStatus.ForeColor = coils[0] ? System.Drawing.Color.Green : System.Drawing.Color.Red;
-
-                btnLeft.ForeColor = coils[0] ? System.Drawing.Color.White : System.Drawing.Color.Black;
-                btnLeft.BackColor = coils[0] ? System.Drawing.Color.Green : System.Drawing.Color.Red;
-
-                LogStatus($"LEFT bit is now {(coils[0] ? "ON" : "OFF")}");
+                lblLeftStatus.ForeColor = coils[0] ? Color.Green : Color.Red;
             }
         }
 
         private void UpdateRightStatus()
         {
-            if (InvokeRequired)
+            if (this.InvokeRequired)
             {
                 this.Invoke(new Action(UpdateRightStatus));
             }
             else
             {
                 lblRightStatus.Text = coils[1] ? "ON" : "OFF";
-                lblRightStatus.ForeColor = coils[1] ? System.Drawing.Color.Green : System.Drawing.Color.Red;
-
-                btnRight.ForeColor = coils[0] ? System.Drawing.Color.White : System.Drawing.Color.Black;
-                btnRight.BackColor = coils[0] ? System.Drawing.Color.Green : System.Drawing.Color.Red;
-
-                LogStatus($"RIGHT bit is now {(coils[1] ? "ON" : "OFF")}");
+                lblRightStatus.ForeColor = coils[1] ? Color.Green : Color.Red;
             }
-        }
-
-        private void LogStatus(string message)
-        {
-            if (txtStatusLog.InvokeRequired)
-            {
-                txtStatusLog.Invoke(new Action<string>(LogStatus), message);
-            }
-            else
-            {
-                txtStatusLog.AppendText($"{DateTime.Now}: {message}{Environment.NewLine}");
-                txtStatusLog.SelectionStart = txtStatusLog.Text.Length;
-                txtStatusLog.ScrollToCaret();
-            }
-        }
-
-        private void btnExit_Click(object sender, EventArgs e)
-        {
-            this.Close();
         }
     }
 }

@@ -13,7 +13,6 @@
         private System.Windows.Forms.Button btnRight;
         private System.Windows.Forms.Label lblLeftStatus;
         private System.Windows.Forms.Label lblRightStatus;
-        private System.Windows.Forms.TextBox txtStatusLog;
         private System.Windows.Forms.Button btnExit;
         private System.Windows.Forms.Label lblLeft;
         private System.Windows.Forms.Label lblRight;
@@ -46,7 +45,6 @@
             btnLeft = new Button();
             lblRight = new Label();
             lblLeft = new Label();
-            txtStatusLog = new TextBox();
             btnExit = new Button();
             groupBoxControls.SuspendLayout();
             SuspendLayout();
@@ -130,22 +128,12 @@
             lblLeft.TabIndex = 0;
             lblLeft.Text = "LEFT";
             // 
-            // txtStatusLog
-            // 
-            txtStatusLog.Location = new Point(13, 212);
-            txtStatusLog.Multiline = true;
-            txtStatusLog.Name = "txtStatusLog";
-            txtStatusLog.ReadOnly = true;
-            txtStatusLog.ScrollBars = ScrollBars.Vertical;
-            txtStatusLog.Size = new Size(533, 285);
-            txtStatusLog.TabIndex = 1;
-            // 
             // btnExit
             // 
             btnExit.BackColor = Color.Firebrick;
             btnExit.Font = new Font("Segoe UI", 32F, FontStyle.Regular, GraphicsUnit.Point);
             btnExit.ForeColor = Color.White;
-            btnExit.Location = new Point(12, 503);
+            btnExit.Location = new Point(12, 236);
             btnExit.Name = "btnExit";
             btnExit.Size = new Size(533, 91);
             btnExit.TabIndex = 2;
@@ -158,9 +146,8 @@
             AcceptButton = btnLeft;
             AutoScaleDimensions = new SizeF(7F, 15F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(558, 606);
+            ClientSize = new Size(558, 342);
             Controls.Add(btnExit);
-            Controls.Add(txtStatusLog);
             Controls.Add(groupBoxControls);
             FormBorderStyle = FormBorderStyle.FixedDialog;
             Name = "Form1";
@@ -168,7 +155,6 @@
             groupBoxControls.ResumeLayout(false);
             groupBoxControls.PerformLayout();
             ResumeLayout(false);
-            PerformLayout();
         }
 
         #endregion
